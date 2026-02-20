@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>理科：音の波形と周波数解析</title>
+    <style>
+        :root { --primary-color: #0056b3; --bg-color: #f0f2f5; --panel-bg: #ffffff; }
+        body { margin: 0; font-family: sans-serif; background-color: var(--bg-color); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .container { display: flex; flex: 1; flex-direction: row; height: 100%; }
+        @media (max-width: 768px) { .container { flex-direction: column; overflow-y: auto; } }
+
+        /* ビジュアライザエリア */
+        .visualizer-area { flex: 2; background-color: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; position: relative; min-height: 400px; }
+        canvas { width: 100%; max-width: 800px; height: 320px; border: 3px solid #555; border-radius: 12px; }
+
+        .overlay-info { display: flex; align-items: baseline; justify-content: center; gap: 20px; margin-bottom: 10px; }
+        .note-display { font-size: 5rem; font-weight: 900; color: #4a90e2; }
+        .freq-on-canvas { font-size: 2.2rem; color: #fff; font-family: monospace; font-weight: 900; }
+
+        /* コントロールパネル */
+        .control-panel { flex: 1; background-color: var(--panel-bg); padding: 15px; box-shadow: -2px 0 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        
+        .btn { border: 3px solid #000; border-radius: 12px; cursor: pointer; font-weight: 900; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; transition: all 0.05s; box-shadow: 0 6px 0 #666; background: #ffffff; color: #000; position: relative; }
+        .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #333; }
+        
+        .btn-main { width: 100%; min-height: 55px; font-size: 1.3rem; margin-bottom: 5px; }
+        .btn-start { background: #2ecc71; box-shadow: 0 6px 0 #1e8449; }
+        .btn-stop { background: #e74c3c; box-shadow: 0 6px 0 #c0392b; color: #fff !important; display: none; }
+
+        .mode-section { background: #eee; padding: 12px; border-radius: 12px; border: 3px solid #000; }
+        .mode-selector { display: flex; gap: 10px; margin-top: 5px; margin-bottom: 10px; }
+        .btn-toggle { flex: 1; min-height: 40px; }
+        .active { background: #ffcc00 !important; box-shadow: 0 6px 0 #b38f00 !important; }
+
+        .slider-group { background: #fff; padding: 10px; border-radius: 8px; border: 2px solid #000; margin-bottom: 5px; }
+        .slider-container { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+        input[type=range] { width: 100%; height: 25px; cursor: pointer; }
+        .slider-label { font-weight: 900; font-size: 0.9rem; color: #000; }
+
+        .piano-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .key { padding: 8px 0; flex-direction: column; min-height: 60px; border: 3px solid #000; }
+        .key.playing { background: #ff6b6b !important; box-shadow: 0 6px 0 #b33939 !important; }
+        .btn-stop-tone { grid-column: span 4; min-height: 70px; font-size: 1.2rem; background: #bdc3c7; box-shadow: 0 6px 0 #7f8c8d; }
+
+        /* 対応表ボタンを最下部へ */
+        .info-link-btn { width: 100%; min-height: 50px; background: #34495e; color: #fff !important; box-shadow: 0 6px 0 #1a252f; margin-top: auto; margin-bottom: 10px; }
+
+        /* モーダル */
+        #modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; width: 90%; max-width: 400px; height: 75vh; border-radius: 20px; display: flex; flex-direction: column; border: 4px solid #000; overflow: hidden; }
+        .modal-header { padding: 15px; border-bottom: 3px solid #000; font-weight: 900; display: flex; justify-content: space-between; background: #eee; }
+        .modal-body { flex: 1; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #eee; padding: 12px; text-align: center; font-weight: bold; color: #000; }
+        th { background: #ddd; position: sticky; top: 0; }
+        
+        /* 網掛けのスタイル：お手本音の範囲 */
+        .highlight-row { background-color: #e0e0e0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="visualizer-area">
+        <div class="overlay-info">
+            <div id="noteName" class="note-display">--</div>
+            <div class="freq-on-canvas"><span id="freqValue">0.0</span> Hz</div>
+        </div>
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="control-panel">
+        <button id="startBtn" class="btn btn-main btn-start" onclick="initAudio()">解析を開始する</button>
+        <button id="stopBtn" class="btn btn-main btn-stop" onclick="toggleAnalysis()">解析を一時停止</button>
+
+        <div class="mode-section">
+            <span class="slider-label">1. グラフの種類</span>
+            <div class="mode-selector">
+                <button id="viewOsc" class="btn btn-toggle active" onclick="setView('osc')">波形</button>
+                <button id="viewFft" class="btn btn-toggle" onclick="setView('fft')">周波数</button>
+            </div>
+            
+            <div class="slider-group">
+                <div class="slider-container">
+                    <span class="slider-label">2. 縦軸：振幅（拡大率）</span>
+                    <input type="range" id="ampSlider" min="0.7" max="5.0" step="0.1" value="1.0" oninput="drawCurrentFrame()">
+                </div>
+                <div class="slider-container">
+                    <span class="slider-label">3. 横軸：時間（表示範囲）</span>
+                    <input type="range" id="timeSlider" min="128" max="1024" step="32" value="1024" oninput="drawCurrentFrame()">
+                </div>
+            </div>
+
+            <span class="slider-label" style="display:block; margin-top:10px;">4. 動作モード</span>
+            <div class="mode-selector">
+                <button id="modeRun" class="btn btn-toggle active" onclick="setMode('run')">連続</button>
+                <button id="modeHold" class="btn btn-toggle" onclick="setMode('hold')">固定</button>
+            </div>
+        </div>
+
+        <div>
+            <span class="slider-label">お手本音</span>
+            <div class="piano-keys">
+                <button class="key btn" data-freq="261.63" data-name="ド"><span>ド</span><span style="font-size:0.8rem">261.6</span></button>
+                <button class="key btn" data-freq="293.66" data-name="レ"><span>レ</span><span style="font-size:0.8rem">293.7</span></button>
+                <button class="key btn" data-freq="329.63" data-name="ミ"><span>ミ</span><span style="font-size:0.8rem">329.6</span></button>
+                <button class="key btn" data-freq="349.23" data-name="ファ"><span>ファ</span><span style="font-size:0.8rem">349.2</span></button>
+                <button class="key btn" data-freq="392.00" data-name="ソ"><span>ソ</span><span style="font-size:0.8rem">392.0</span></button>
+                <button class="key btn" data-freq="440.00" data-name="ラ"><span>ラ</span><span style="font-size:0.8rem">440.0</span></button>
+                <button class="key btn" data-freq="493.88" data-name="シ"><span>シ</span><span style="font-size:0.8rem">493.9</span></button>
+                <button class="key btn" data-freq="523.25" data-name="ド↑"><span>ド↑</span><span style="font-size:0.8rem">523.3</span></button>
+                <button class="btn btn-stop-tone" onclick="stopCurrentTone()">音を止める</button>
+            </div>
+        </div>
+
+        <button class="btn info-link-btn" onclick="openModal()">対応表を見る</button>
+    </div>
+</div>
+
+<div id="modal" onclick="closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span>音階と周波数の対応</span>
+            <span style="cursor:pointer;" onclick="closeModal()">×</span>
+        </div>
+        <div class="modal-body">
+            <table><tbody id="freqTableBody"></tbody></table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let audioContext, analyser, microphone, animationId;
+    let isPaused = false;
+    let currentMode = 'run', currentView = 'osc';
+    let currentOscillator = null, currentGainNode = null, activeFreq = null, activeName = null;
+    let lastTimeBuffer = null, lastFreqBuffer = null, heldTimeBuffer = null, heldFreqBuffer = null;
+
+    const canvas = document.getElementById('canvas'), canvasCtx = canvas.getContext('2d');
+    const ampSlider = document.getElementById('ampSlider'), timeSlider = document.getElementById('timeSlider');
+    const noteStringsJP = ["ド", "ド#", "レ", "レ#", "ミ", "ファ", "ファ#", "ソ", "ソ#", "ラ", "ラ#", "シ"];
+
+    document.querySelectorAll('.key').forEach(button => {
+        button.addEventListener('click', () => toggleTone(parseFloat(button.dataset.freq), button.dataset.name, button));
+    });
+
+    async function initAudio() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+            microphone = audioContext.createMediaStreamSource(stream);
+            microphone.connect(analyser);
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'flex';
+            update();
+        } catch (err) { alert('マイクの使用を許可してください。'); }
+    }
+
+    function toggleAnalysis() {
+        isPaused = !isPaused;
+        const btn = document.getElementById('stopBtn');
+        if (isPaused) {
+            btn.innerText = "解析を再開する"; btn.style.background = "#2ecc71"; btn.style.boxShadow = "0 6px 0 #1e8449";
+            cancelAnimationFrame(animationId);
+        } else {
+            btn.innerText = "解析を一時停止"; btn.style.background = "#e74c3c"; btn.style.boxShadow = "0 6px 0 #c0392b";
+            update();
+        }
+    }
+
+    function drawCurrentFrame() {
+        if (!isPaused) return;
+        let targetTime = (currentMode === 'hold' && heldTimeBuffer) ? heldTimeBuffer : lastTimeBuffer;
+        let targetFreq = (currentMode === 'hold' && heldFreqBuffer) ? heldFreqBuffer : lastFreqBuffer;
+        if (!targetTime) return;
+        if (currentView === 'osc') drawOsc(getTriggeredBuffer(targetTime));
+        else drawFftLine(targetFreq);
+    }
+
+    function toggleTone(freq, name, button) {
+        if (activeFreq === freq) { stopCurrentTone(); } 
+        else { stopCurrentTone(); startTone(freq); button.classList.add('playing'); activeFreq = freq; activeName = name; }
+    }
+
+    function startTone(freq) {
+        if(!audioContext) return;
+        currentOscillator = audioContext.createOscillator();
+        currentGainNode = audioContext.createGain();
+        currentOscillator.type = 'sine';
+        currentOscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+        currentGainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        currentGainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.05);
+        currentOscillator.connect(currentGainNode);
+        currentGainNode.connect(audioContext.destination);
+        currentGainNode.connect(analyser); 
+        currentOscillator.start();
+    }
+
+    function stopCurrentTone() {
+        if (currentOscillator) {
+            const gain = currentGainNode, osc = currentOscillator;
+            gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.1);
+            setTimeout(() => { try { osc.stop(); } catch(e){} }, 120);
+            currentOscillator = null;
+        }
+        activeFreq = null; activeName = null;
+        document.querySelectorAll('.key').forEach(k => k.classList.remove('playing'));
+    }
+
+    function setView(v) {
+        currentView = v;
+        document.getElementById('viewOsc').classList.toggle('active', v === 'osc');
+        document.getElementById('viewFft').classList.toggle('active', v === 'fft');
+        drawCurrentFrame();
+    }
+
+    function setMode(m) {
+        currentMode = m;
+        document.getElementById('modeRun').classList.toggle('active', m === 'run');
+        document.getElementById('modeHold').classList.toggle('active', m === 'hold');
+        if (m === 'run') heldTimeBuffer = null;
+        drawCurrentFrame();
+    }
+
+    function update() {
+        if (isPaused) return;
+        const timeBuffer = new Float32Array(analyser.fftSize);
+        const freqBuffer = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getFloatTimeDomainData(timeBuffer);
+        analyser.getByteFrequencyData(freqBuffer);
+        
+        lastTimeBuffer = new Float32Array(timeBuffer);
+        lastFreqBuffer = new Uint8Array(freqBuffer);
+
+        let rms = 0;
+        for (let i = 0; i < timeBuffer.length; i++) rms += timeBuffer[i] * timeBuffer[i];
+        rms = Math.sqrt(rms / timeBuffer.length);
+
+        let targetTimeBuffer = timeBuffer, targetFreqBuffer = freqBuffer;
+        if (currentMode === 'hold' && !activeFreq) {
+            if (rms > 0.03) {
+                heldTimeBuffer = new Float32Array(timeBuffer);
+                heldFreqBuffer = new Uint8Array(freqBuffer);
+            }
+            if (heldTimeBuffer) { targetTimeBuffer = heldTimeBuffer; targetFreqBuffer = heldFreqBuffer; }
+        }
+
+        const pitch = autoCorrelate(targetTimeBuffer, audioContext.sampleRate);
+        if (activeName) {
+            document.getElementById('noteName').innerText = activeName;
+            document.getElementById('freqValue').innerText = activeFreq.toFixed(1);
+        } else if (pitch !== -1) {
+            const note = Math.round(12 * (Math.log(pitch / 440) / Math.log(2))) + 69;
+            document.getElementById('noteName').innerText = noteStringsJP[note % 12];
+            document.getElementById('freqValue').innerText = pitch.toFixed(1);
+        } else {
+            document.getElementById('noteName').innerText = "--";
+            document.getElementById('freqValue').innerText = "0.0";
+        }
+
+        if (currentView === 'osc') drawOsc(getTriggeredBuffer(targetTimeBuffer));
+        else drawFftLine(targetFreqBuffer);
+        animationId = requestAnimationFrame(update);
+    }
+
+    function drawOsc(buffer) {
+        clearCanvas(); drawGrid();
+        canvasCtx.lineWidth = 4;
+        canvasCtx.strokeStyle = (currentMode === 'run') ? '#0f0' : '#ff0'; 
+        canvasCtx.beginPath();
+        const displayLen = parseInt(timeSlider.value); 
+        const sliceWidth = canvas.width / displayLen;
+        const ampValue = parseFloat(ampSlider.value); 
+        for (let i = 0; i < displayLen; i++) {
+            const v = (buffer[i] || 0) * ampValue + 0.5;
+            const y = v * canvas.height;
+            if (i === 0) canvasCtx.moveTo(0, y); else canvasCtx.lineTo(i * sliceWidth, y);
+        }
+        canvasCtx.stroke();
+    }
+
+    function drawFftLine(buffer) {
+        clearCanvas();
+        canvasCtx.strokeStyle = '#444'; canvasCtx.fillStyle = '#bbb'; canvasCtx.font = 'bold 14px Arial';
+        const limitFreq = 1000, sampleRate = audioContext.sampleRate;
+        for(let f = 200; f <= limitFreq; f += 200) {
+            let x = (f / limitFreq) * canvas.width;
+            canvasCtx.beginPath(); canvasCtx.moveTo(x, 0); canvasCtx.lineTo(x, canvas.height); canvasCtx.stroke();
+            canvasCtx.fillText(f + " Hz", x - 20, canvas.height - 10);
+        }
+        canvasCtx.lineWidth = 1; canvasCtx.strokeStyle = (currentMode === 'run') ? '#4a90e2' : '#ff0';
+        canvasCtx.beginPath();
+        const maxIndex = Math.floor((limitFreq / (sampleRate / 2)) * buffer.length);
+        const ampValue = parseFloat(ampSlider.value); 
+        for (let i = 0; i <= maxIndex; i++) {
+            const x = (i / maxIndex) * canvas.width;
+            const y = canvas.height - ((buffer[i] / 255) * canvas.height * (ampValue * 0.2 + 0.8));
+            if (i === 0) canvasCtx.moveTo(x, y); else canvasCtx.lineTo(x, y);
+        }
+        canvasCtx.stroke();
+    }
+
+    function clearCanvas() { canvasCtx.fillStyle = '#000'; canvasCtx.fillRect(0, 0, canvas.width, canvas.height); }
+    function drawGrid() {
+        canvasCtx.strokeStyle = '#222';
+        for(let i=0; i<canvas.width; i+=50){ canvasCtx.beginPath(); canvasCtx.moveTo(i,0); canvasCtx.lineTo(i,canvas.height); canvasCtx.stroke(); }
+        for(let i=0; i<canvas.height; i+=50){ canvasCtx.beginPath(); canvasCtx.moveTo(0,i); canvasCtx.lineTo(canvas.width,i); canvasCtx.stroke(); }
+    }
+
+    function getTriggeredBuffer(buffer) {
+        let triggerIndex = 0;
+        for (let i = 1; i < buffer.length / 2; i++) {
+            if (buffer[i-1] <= 0 && buffer[i] > 0) { triggerIndex = i; break; }
+        }
+        return buffer.slice(triggerIndex);
+    }
+
+    function autoCorrelate(buffer, sampleRate) {
+        let rms = 0; for (let i = 0; i < buffer.length; i++) rms += buffer[i] * buffer[i];
+        if (Math.sqrt(rms / buffer.length) < 0.01) return -1;
+        let size = buffer.length / 2, c = new Float32Array(size);
+        for (let i = 0; i < size; i++) { for (let j = 0; j < size - i; j++) c[i] = c[i] + buffer[j] * buffer[j + i]; }
+        let d = 0; while (c[d] > c[d + 1]) d++;
+        let maxval = -1, maxpos = -1;
+        for (let i = d; i < size; i++) { if (c[i] > maxval) { maxval = c[i]; maxpos = i; } }
+        if (maxpos > (sampleRate / 80)) return -1;
+        return (maxval < 0.01) ? -1 : sampleRate / maxpos;
+    }
+
+    function openModal() {
+        const tbody = document.getElementById('freqTableBody');
+        tbody.innerHTML = "<tr><th>音</th><th>周波数(Hz)</th></tr>";
+        const notes = ["ド", "ド#", "レ", "レ#", "ミ", "ファ", "ファ#", "ソ", "ソ#", "ラ", "ラ#", "シ"];
+        
+        for (let oct = 3; oct <= 6; oct++) {
+            for (let n = 0; n < 12; n++) {
+                let freq = 440 * Math.pow(2, (oct * 12 + n - 57) / 12);
+                
+                // 網掛けの判定：ド4 (oct=4, n=0) から ド5 (oct=5, n=0) まで
+                // ※ ド↑ は ド5 にあたる
+                let isSampleNote = false;
+                if (oct === 4) {
+                    isSampleNote = true; // ド4〜シ4はすべて対象
+                } else if (oct === 5 && n === 0) {
+                    isSampleNote = true; // ド5 (ド↑) を対象に含める
+                }
+                
+                let rowClass = isSampleNote ? 'class="highlight-row"' : '';
+                tbody.innerHTML += `<tr ${rowClass}><td>${notes[n]}${oct}</td><td>${freq.toFixed(1)}</td></tr>`;
+            }
+        }
+        document.getElementById('modal').style.display = 'flex';
+    }
+    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+</script>
+</body>
+</html>
